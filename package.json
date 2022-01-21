@@ -1,0 +1,12 @@
+{
+  "type": "module",
+  "dependencies": {
+    "axios": "^0.25.0",
+    "axios-retry": "^3.2.4",
+    "bclient": "^0.1.7",
+    "level": "^7.0.1"
+  },
+  "devDependencies": {
+    "blockcypher": "^0.3.0"
+  }
+}
