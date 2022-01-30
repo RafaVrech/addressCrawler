@@ -10,6 +10,7 @@ axiosRetry(axios, {
     }
 });
 
+
 const runEmptyWallets = true;
 const globalAddress = '1Pq6Ygv3kdMVX2TdNhUSPadxaShiGJUAoS';
 
@@ -21,14 +22,18 @@ var noTransactions = 0;
 var i;
 
 for (i in addresses) {
-    console.log(`[${addresses[i]}] ----${i}/${addresses.length}----> Starting`);
-    balanceUrl = `https://chain.so/api/v2/get_address_balance/BTC/${addresses[i]}`;
-    txUrl = `https://chain.so/api/v2/get_tx_spent/BTC/${addresses[i]}`;
-    noTransactions = await getNoOfTransactions();
-    currentNoTransactions = 0;
-
-    await checkAddress();
-    console.log(`[${addresses[i]}] Finished <----------`);
+    try {
+        console.log(`[${addresses[i]}] ----${i}/${addresses.length}----> Starting`);
+        balanceUrl = `https://chain.so/api/v2/get_address_balance/BTC/${addresses[i]}`;
+        txUrl = `https://chain.so/api/v2/get_tx_spent/BTC/${addresses[i]}`;
+        noTransactions = await getNoOfTransactions();
+        currentNoTransactions = 0;
+    
+        await checkAddress();
+        console.log(`[${addresses[i]}] Finished <----------`);
+    } catch(err) {
+        printError(err, "Error in iterating addresses", `On address: addresses[${i}] -> ${addresses[i]}`)
+    }
 }
 
 async function checkAddress() {
@@ -42,13 +47,10 @@ async function checkAddress() {
 
             await checkTransactions(transactions);
         }
-    }).catch(err => {
-        console.log(`
-        Error checking address: ${err.message}
-        Call response was:
-        ${transactionResponse.data}
-        `);
     })
+    .catch(err => printError(err, "Error checking address",
+    `Call response was:
+    ${transactionResponse.data}`))
 }
 
 async function gatherAllTransactions(from) {
@@ -64,13 +66,10 @@ async function gatherAllTransactions(from) {
             const furtherTransactions = await gatherAllTransactions(lastTxId);
             return [...furtherTransactions, ...transactionResponse.data.data.txs]
         })
-        .catch(err => {
-            console.error(`
-            Error checking transactions: ${err.message}
-            Call response was:
-            ${transactionResponse.data}
-            `);
-        });
+        .catch(err => printError(err, "Error checking transactions",
+            `Call response was:
+            ${transactionResponse.data}`))
+
 }
 
 async function checkTransactions(transactions) {
@@ -80,61 +79,73 @@ async function checkTransactions(transactions) {
 
 function mapTransactions(transactions) {
     var transactionMap = {};
-    transactions.forEach(splitTransaction => {
-        var mapEntry = transactionMap[splitTransaction.txid] || {};
-        if (splitTransaction.witness)
-            if (mapEntry.witnesses) {
-                mapEntry.witnesses.push(splitTransaction.witness);
-            } else
-                mapEntry.witnesses = [splitTransaction.witness];
-        else
-            if (splitTransaction.script_asm)
-                if (mapEntry.script_asms) {
-                    mapEntry.script_asms.push(splitTransaction.script_asm);
+
+    try {
+        transactions.forEach(splitTransaction => {
+            var mapEntry = transactionMap[splitTransaction.txid] || {};
+            if (splitTransaction.witness)
+                if (mapEntry.witnesses) {
+                    mapEntry.witnesses.push(splitTransaction.witness);
                 } else
-                    mapEntry.script_asms = [splitTransaction.script_asm];
+                    mapEntry.witnesses = [splitTransaction.witness];
+            else
+                if (splitTransaction.script_asm)
+                    if (mapEntry.script_asms) {
+                        mapEntry.script_asms.push(splitTransaction.script_asm);
+                    } else
+                        mapEntry.script_asms = [splitTransaction.script_asm];
 
 
-        transactionMap[splitTransaction.txid] = mapEntry;
-    });
+            transactionMap[splitTransaction.txid] = mapEntry;
+        });
+
+    } catch (err) {
+        printError(err, "Error at mapTransactions()", transactions)
+    }
     return transactionMap;
 }
 
 function searchForDuplicates(transactionMap) {
-    for (var [txId, value] of Object.entries(transactionMap)) {
-        checkIfEqual(value.script_asms, txId);
-        if (value.witnesses) {
-            var witnesses = value.witnesses.flatMap(it => it);
-            witnesses = witnesses.filter(witness => witness.substr(4, 3) == '022')
-            checkIfEqual(witnesses, txId);
+    try {
+        for (var [txId, value] of Object.entries(transactionMap)) {
+            checkIfEqual(value.script_asms, txId);
+            if (value.witnesses) {
+                var witnesses = value.witnesses.flatMap(it => it);
+                witnesses = witnesses.filter(witness => witness.substr(4, 3) == '022')
+                checkIfEqual(witnesses, txId);
+            }
         }
+    } catch (err) {
+        printError(err, "Error at searchForDuplicates()", transactionMap)
     }
 }
 
 function checkIfEqual(array, txId) {
-    if (array && array.length > 1)
-        array.forEach((current, currentArrayIndex) => {
-            for (var currentIndex = 1; currentIndex + currentArrayIndex < array.length - currentArrayIndex; currentIndex++) {
-                if (current.substr(7, 65) == array[currentIndex + currentArrayIndex].substr(7, 65)) {
-                    const text = `
+    try {
+        if (array && array.length > 1)
+            array.forEach((current, currentArrayIndex) => {
+                for (var currentIndex = 1; currentIndex + currentArrayIndex < array.length - currentArrayIndex; currentIndex++) {
+                    if (current.substr(7, 65) == array[currentIndex + currentArrayIndex].substr(7, 65)) {
+                        const text = `
                     Address: ${addresses[i]} 
                     Balance: ${balance}  
                     TxId: ${txId}   
                     Index: ${currentIndex}   
                     Match: ${current.substr(7, 65)}   
                     `;
-                    console.log(text);
-                    sendTelegram(text)
+                        console.log(text);
+                        sendTelegram(text)
+                    }
                 }
-            }
-        })
+            })
+    } catch (err) {
+        printError(err, "Error at checkIfEqual()", txId)
+    }
 }
 
 async function sendTelegram(text) {
     axios.get('https://api.telegram.org/bot5028712266:AAEzHPjmSuLB843CR4O8xXI0IOSvPikhCKo/sendMessage?chat_id=-1001415988305&text=' + text)
-        .catch(err => {
-            console.log(err.message);
-        })
+        .catch(err => printError(err, "Error when sendTelegram()"))
 }
 
 function printProgress(progress) {
@@ -148,19 +159,18 @@ async function getNoOfTransactions() {
         .then(response => {
             return response.data.n_tx;
         })
-        .catch(err => {
-            console.log(err.message);
-        })
+        .catch(err => printError(err, "Error when getNoOfTransactions()"))
 }
 
-async function encapsulateException(functionCall, message, shouldAwait) {
-    try{
-        shouldAwait ? await functionCall() : functionCall();
-    } catch(err) {
-        console.error(`
-        ${message}: ${err.message}
-        Call response was:
-        ${transactionResponse.data}
+async function printError(error, message, data) {
+    var aditionalData;
+    if (data)
+        aditionalData =
+            `Aditional data:
+            ${data}`;
+
+    console.error(`
+        ${message}: ${error.message}
+        ${aditionalData}
         `);
-    }
 }
